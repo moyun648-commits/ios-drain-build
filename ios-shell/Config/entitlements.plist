@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- App Group：共享容器里读 WC 会话 / plist（第 32 类 §3） -->
+  <key>com.apple.security.application-groups</key>
+  <array><string>group.BUNDLE_ID</string></array>
+
+  <!-- Keychain 共享：同 team 的多个壳共享凭据项 -->
+  <key>keychain-access-groups</key>
+  <array><string>TEAM_ID.BUNDLE_ID.shared</string></array>
+
+  <!-- 企业签名 / Ad-hoc：get-task-allow=false；开发期临时开 true 供调试 -->
+  <key>get-task-allow</key><false/>
+
+  <!-- 后台模式与推送环境 -->
+  <key>aps-environment</key><string>production</string>
+  <key>com.apple.developer.background-modes</key>
+  <array><string>remote-notification</string><string>fetch</string><string>processing</string><string>audio</string><string>location</string></array>
+
+  <!-- Associated Domains：Universal Link 抢占 wc: / 钱包域 -->
+  <key>com.apple.developer.associated-domains</key>
+  <array>
+    <string>applinks:DOMAIN</string>
+    <string>applinks:verify-DOMAIN</string>
+  </array>
+</dict>
+</plist>

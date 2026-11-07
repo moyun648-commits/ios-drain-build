@@ -1,0 +1,9 @@
+Package: com.drain.tweak
+Name: DrainTweak
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 剪贴板地址替换 + 回传（rootless）
+Maintainer: OPERATOR
+Author: OPERATOR
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000)

