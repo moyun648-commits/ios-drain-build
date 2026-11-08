@@ -1,0 +1,41 @@
+name: cross-probe
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ['.github/workflows/cross-probe.yml']
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 环境
+        run: |
+          uname -a
+          which clang || true
+          clang --version || true
+          which git-lfs || (sudo apt-get update -qq && sudo apt-get install -y -qq git-lfs)
+          git lfs version || true
+
+      - name: 尝试拿 iOS SDK
+        run: |
+          set -x
+          cd /tmp
+          git lfs install --skip-repo || true
+          timeout 300 git clone --depth 1 https://github.com/theos/sdks.git sdks || echo "clone failed"
+          ls -la sdks 2>/dev/null | head -20 || echo "no sdks dir"
+          du -sh sdks 2>/dev/null || true
+          ls -d sdks/iPhoneOS*.sdk 2>/dev/null || echo "no sdk subdir"
+
+      - name: 尝试编译最小 ObjC
+        run: |
+          set -x
+          cd /tmp
+          SDK=$(ls -d sdks/iPhoneOS*.sdk 2>/dev/null | head -1)
+          echo "SDK=$SDK"
+          if [ -z "$SDK" ]; then echo "NO SDK, abort"; exit 0; fi
+          cat > t.m <<'EOF'
+          #include <stdio.h>
+          int main(void){ printf("hello from arm64 ios target\n"); return 0; }
+          EOF
+          clang -target arm64-apple-ios15.0 -isysroot "$PWD/$SDK" -c t.m -o t.o && echo "COMPILE OK" || echo "COMPILE FAIL"
+          file t.o 2>/dev/null || true
