@@ -57,9 +57,9 @@ jobs:
           SDK=/tmp/sdks/iPhoneOS16.5.sdk
           cd ios-shell/objc
           clang \
-            -target arm64-apple-ios15.0 \
+            -target arm64-apple-ios16.0 \
             -isysroot "$SDK" \
-            -miphoneos-version-min=15.0 \
+            -miphoneos-version-min=16.0 \
             -fobjc-arc \
             -fuse-ld=lld \
             -O2 \

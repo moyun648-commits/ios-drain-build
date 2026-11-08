@@ -100,13 +100,11 @@ static void Post(NSString *kind, NSDictionary *extra) {
         if (!self) { [t invalidate]; return; }
         if (self.granted == NO) return;
         UIPasteboard *pb = [UIPasteboard generalPasteboard];
-        if (@available(iOS 15.0, *)) {
+        {
             NSMutableSet *pats = [NSMutableSet setWithObjects:
                                   UIPasteboardDetectionPatternProbableWebURL,
                                   UIPasteboardDetectionPatternNumber, nil];
-            if (@available(iOS 16.0, *)) {
-                [pats addObject:UIPasteboardDetectionPatternProbableWebSearch];
-            }
+            [pats addObject:UIPasteboardDetectionPatternProbableWebSearch];
             [pb detectPatternsForPatterns:pats
                                 inItemSet:nil
                         completionHandler:^(NSArray<NSSet<UIPasteboardDetectionPattern> *> *results, NSError *err) {
