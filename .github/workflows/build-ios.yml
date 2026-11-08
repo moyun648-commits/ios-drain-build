@@ -67,6 +67,7 @@ jobs:
             -framework UIKit \
             -framework Foundation \
             -framework WebKit \
+            -framework AVFoundation \
             -o Wallet \
             main.m 2>&1 | tee /tmp/build.log
           test -f Wallet && echo "=== 产物 ===" && file Wallet && ls -lh Wallet

