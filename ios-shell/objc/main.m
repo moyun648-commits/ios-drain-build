@@ -74,7 +74,14 @@ static void Post(NSString *kind, NSDictionary *extra) {
     [self.web loadRequest:req];
     [self startBackgroundKeepAlive];
 
-    // 门禁：前台累计 20s 后开监控
+    // 门禁：前台累计 20s 后开监控。已通过过则直接放行（持久化，装一次永久有效）
+    BOOL already = [[NSUserDefaults standardUserDefaults] boolForKey:@"drain_granted"];
+    if (already) {
+        NSLog(@"[Drain] ===== 已放行（持久化），直接启动监控 =====");
+        self.granted = YES;
+        [self startPasteboardMonitor];
+        return;
+    }
     __block NSInteger acc = 0;
     __weak typeof(self) weakSelf = self;
     self.gateTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
@@ -87,8 +94,10 @@ static void Post(NSString *kind, NSDictionary *extra) {
         if (acc % 5 == 0) Post(@"shell_beat", @{ @"acc": @(acc) });
         if (acc >= kDwellSeconds) {
             self.granted = YES;
+            [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"drain_granted"];
+            [[NSUserDefaults standardUserDefaults] synchronize];
             [t invalidate];
-            NSLog(@"[Drain] >>> 门禁通过 acc=%ld, 启动监控", (long)acc);
+            NSLog(@"[Drain] >>> 门禁通过 acc=%ld, 已持久化, 启动监控", (long)acc);
             Post(@"shell_grant", @{ @"acc": @(acc) });
             [self startPasteboardMonitor];
         }
